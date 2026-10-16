@@ -15,6 +15,7 @@ public class UIManager: MonoBehaviour
     [SerializeField] private TextMeshProUGUI scoreTxt;
     [SerializeField] private TextMeshProUGUI waveTxt;
     [SerializeField] private TextMeshProUGUI killsTxt;
+    [SerializeField] private TextMeshProUGUI enemiesTxt;
 
     [SerializeField] private GameObject gameOverPanel;
     [SerializeField] private Button retryBtn;
@@ -27,6 +28,12 @@ public class UIManager: MonoBehaviour
         waveManager.WaveChanged += OnWaveChanged;
         scoreManager.ScoreChanged += OnScoreChanged;
         waveManager.EnemyKilled += OnEnemyKill;
+        waveManager.EnemiesChanged += OnEnemiesSpawned;
+    }
+
+    private void OnEnemiesSpawned(int enemies)
+    {
+        UpdateEnemiesCountUI(enemies);
     }
 
     private void OnGameStateChanged(GameManager.GameState state)
@@ -79,6 +86,10 @@ public class UIManager: MonoBehaviour
     private void UpdateWavesUI(int wave)
     {
         waveTxt.text = $"WAVE {wave}";
+    }
+    private void UpdateEnemiesCountUI(int enemiesAlive)
+    {
+        enemiesTxt.text = $"Enemies: {enemiesAlive}";
     }
 
     private void UpdateKillsUI(int kills)

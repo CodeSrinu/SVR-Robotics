@@ -1,4 +1,6 @@
+using System;
 using UnityEngine;
+using static UnityEditor.PlayerSettings;
 
 public class Projectile : MonoBehaviour
 {
@@ -6,6 +8,8 @@ public class Projectile : MonoBehaviour
     private float damage;
     private Rigidbody rb;
     private float expireTime;
+    private Action<Projectile> OnRelease;
+    private bool isReleased;
 
     private void Awake()
     {
@@ -15,32 +19,38 @@ public class Projectile : MonoBehaviour
 
     private void Update()
     {
-        if(Time.time >  expireTime) Release();
-
-        expireTime -= Time.deltaTime;
+        if (Time.time > expireTime) OnRelease?.Invoke(this);
     }
 
-    public void Launch(Vector3 dir, float speed, float dmg)
+    public void Launch(Vector3 pos, Vector3 dir, float speed, float dmg, Action<Projectile> action)
     {
+        transform.position = pos;
         transform.forward = dir;
         rb.velocity = dir * speed;
         damage = dmg;
+        OnRelease = action;
         expireTime = Time.time + lifeSpan;
+        isReleased = false;
     }
 
     private void OnTriggerEnter(Collider other)
     {
+        if (isReleased) return;
+
         if (other.CompareTag("Player")) return;
 
         if(other.TryGetComponent<Health>(out Health health))
         {
             health.TakeDamage(damage);
         }
-        Release();
+        ReleaseProjectile();
     }
 
-    private void Release()
+    private void ReleaseProjectile()
     {
-        Destroy(gameObject);
+        if(isReleased) return;
+
+        OnRelease?.Invoke(this);
+        isReleased = true;
     }
 }

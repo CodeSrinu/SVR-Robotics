@@ -20,7 +20,6 @@ public class Enemy : MonoBehaviour
     {
         agent = GetComponent<NavMeshAgent>();
         health = GetComponent<Health>();
-        pathCheckTimer = pathCheckCooldown;
     }
 
     private void OnEnable()
@@ -43,6 +42,7 @@ public class Enemy : MonoBehaviour
         target.TryGetComponent<Health>(out targetHealth);
         isInitialized = true;
         attackTimer = data.damageInterval;
+        pathCheckTimer = Random.Range(0f, pathCheckCooldown);
     }
 
     private void Update()

@@ -3,6 +3,7 @@ tasks:
 project_structure:
 - Core\GameManager.cs
 - Core\Health.cs
+- Core\Pool.cs
 - Core\Projectile.cs
 - Core\ScoreManager.cs
 - Core\WaveData.cs
@@ -15,7 +16,6 @@ project_structure:
 - Player\PlayerLook.cs
 - Player\PlayerMover.cs
 - Player\PlayerShooter.cs
-- Tests\test.cs
 - UI\UIManager.cs
 files:
 - name: Core\GameManager.cs
@@ -72,20 +72,67 @@ files:
     \n    public event Action<float> Damaged;\n    public event Action<float, float>\
     \ Changed;\n    public event Action Dead;\n\n    public float MaxHealth => maxHealth;\n\
     \    public float CurrentHealth => currentHealth;\n    public bool IsDead { get;\
-    \ private set; }\n\n    public void TakeDamage(float damage)\n    {\n        if\
-    \ (IsDead) return;\n\n        if(currentHealth - damage > 0)\n        {\n    \
-    \        currentHealth -= damage;\n            Damaged?.Invoke(damage);\n    \
-    \        Changed?.Invoke(currentHealth, maxHealth);\n        }\n        else\n\
-    \        {\n            currentHealth = 0;\n            IsDead = true;\n     \
-    \       Damaged?.Invoke(damage);  \n            Changed?.Invoke(currentHealth,\
-    \ maxHealth);\n            Dead?.Invoke();\n        }\n    }\n\n    public void\
-    \ Initialize(float health)\n    {\n        maxHealth = health;\n        ResetHealth();\n\
-    \    }\n\n    public void ResetHealth()\n    {\n        currentHealth = maxHealth;\n\
-    \        Changed?.Invoke(currentHealth, maxHealth);\n        IsDead = false;\n\
-    \    }\n}\n"
+    \ private set; }\n\n    private void Awake()\n    {\n        ResetHealth();\n\
+    \    }\n\n    public void TakeDamage(float damage)\n    {\n        if (IsDead)\
+    \ return;\n\n        if(currentHealth - damage > 0)\n        {\n            currentHealth\
+    \ -= damage;\n            Damaged?.Invoke(damage);\n            Changed?.Invoke(currentHealth,\
+    \ maxHealth);\n        }\n        else\n        {\n            currentHealth =\
+    \ 0;\n            IsDead = true;\n            Damaged?.Invoke(damage);  \n   \
+    \         Changed?.Invoke(currentHealth, maxHealth);\n            Dead?.Invoke();\n\
+    \        }\n    }\n\n    public void Initialize(float health)\n    {\n       \
+    \ maxHealth = health;\n        ResetHealth();\n    }\n\n    public void ResetHealth()\n\
+    \    {\n        currentHealth = maxHealth;\n        Changed?.Invoke(currentHealth,\
+    \ maxHealth);\n        IsDead = false;\n    }\n}\n"
+- name: Core\Pool.cs
+  content: |
+    using System.Collections.Generic;
+    using UnityEngine;
+
+    public class Pool<T> where T : Component
+    {
+        private T prefab;
+        private Transform parent;
+        private Stack<T> inactive;
+
+        public Pool(T prefab, Transform parent, int initialCount)
+        {
+            this.prefab = prefab;
+            this.parent = parent;
+            inactive = new Stack<T>(initialCount);
+            for(int i = 0; i < initialCount; i++)
+            {
+                CreateObj();
+            }
+        }
+
+        public T Get()
+        {
+            if (inactive.Count <= 0) CreateObj();
+
+            T obj = inactive.Pop();
+            obj.gameObject.SetActive(true);
+            return obj;
+        }
+
+        public void Release(T obj)
+        {
+            obj.gameObject.SetActive(false);
+            inactive.Push(obj);
+        }
+
+        private void CreateObj()
+        {
+            T obj = UnityEngine.Object.Instantiate(prefab, parent);
+            obj.gameObject.SetActive(false);
+            inactive.Push(obj);
+        }
+
+    }
 - name: Core\Projectile.cs
   content: |
+    using System;
     using UnityEngine;
+    using static UnityEditor.PlayerSettings;
 
     public class Projectile : MonoBehaviour
     {
@@ -93,6 +140,8 @@ files:
         private float damage;
         private Rigidbody rb;
         private float expireTime;
+        private Action<Projectile> OnRelease;
+        private bool isReleased;
 
         private void Awake()
         {
@@ -102,33 +151,39 @@ files:
 
         private void Update()
         {
-            if(Time.time >  expireTime) Release();
-
-            expireTime -= Time.deltaTime;
+            if (Time.time > expireTime) OnRelease?.Invoke(this);
         }
 
-        public void Launch(Vector3 dir, float speed, float dmg)
+        public void Launch(Vector3 pos, Vector3 dir, float speed, float dmg, Action<Projectile> action)
         {
+            transform.position = pos;
             transform.forward = dir;
             rb.velocity = dir * speed;
             damage = dmg;
+            OnRelease = action;
             expireTime = Time.time + lifeSpan;
+            isReleased = false;
         }
 
         private void OnTriggerEnter(Collider other)
         {
+            if (isReleased) return;
+
             if (other.CompareTag("Player")) return;
 
             if(other.TryGetComponent<Health>(out Health health))
             {
                 health.TakeDamage(damage);
             }
-            Release();
+            ReleaseProjectile();
         }
 
-        private void Release()
+        private void ReleaseProjectile()
         {
-            Destroy(gameObject);
+            if(isReleased) return;
+
+            OnRelease?.Invoke(this);
+            isReleased = true;
         }
     }
 - name: Core\ScoreManager.cs
@@ -181,6 +236,7 @@ files:
         public float baseSpawnInterval;
         public float intervalReductionPerWave;
         public float minSpawnInterval;
+        public int maxAlive = 50;
     }
 - name: Core\WaveManager.cs
   content: |
@@ -197,14 +253,24 @@ files:
         [SerializeField] private EnemyDiedChannel enemyDiedChannel;
         [SerializeField] private Transform[] spawnPoints;
         public event Action<int> EnemyKilled;
+        public event Action<int> EnemiesChanged;
 
 
         private int currentWave = 0;
         private int enemiesAlive;
         private int enemiesKilled = 0;
+        private int currentEnemyCount = 0;
 
         public event Action<int> WaveChanged;
         private Coroutine wavesCoroutine;
+
+        [SerializeField] private float spawnRingRadius = 5f;
+        [SerializeField] private float sampleRadius = 6f;
+        [SerializeField] private float minSpawnDistance = 15f;
+        [SerializeField] private int maxSpawnAttempts = 10;
+        [SerializeField] private float minEdgeDistance = 0.8f;
+
+
         private void OnEnable()
         {
             enemyDiedChannel.Raised += OnEnemyDeath;
@@ -221,9 +287,11 @@ files:
 
         private void OnEnemyDeath(EnemyData enemyData)
         {
+            currentEnemyCount--;
             enemiesAlive--;
             enemiesKilled++;
             EnemyKilled?.Invoke(enemiesKilled);
+            EnemiesChanged?.Invoke(currentEnemyCount);
         }
 
         private IEnumerator RunWaves()
@@ -232,33 +300,80 @@ files:
             {
                 currentWave++;
                 WaveChanged?.Invoke(currentWave);
+
                 int count = waveData.baseEnemyCount + waveData.extraEnemiesPerWave * (currentWave - 1);
                 float interval = Mathf.Max(waveData.minSpawnInterval,
                     waveData.baseSpawnInterval - waveData.intervalReductionPerWave * (currentWave - 1));
-                for (int i = 0; i < count; i++)
+
+                int spawned = 0;
+                int failedInARow = 0;
+
+                while (spawned < count)
                 {
-                    SpawnEnemy();
-                    yield return new WaitForSeconds(interval);
+                    if (enemiesAlive >= waveData.maxAlive)
+                    {
+                        yield return 0.25;
+                        continue;
+                    }
+
+                    if (TrySpawnEnemy())
+                    {
+                        spawned++;
+                        currentEnemyCount++;
+                        EnemiesChanged?.Invoke(currentEnemyCount);
+                        failedInARow = 0;
+                        yield return new WaitForSeconds(interval);
+                    }
+                    else
+                    {
+                        failedInARow++;
+                        if (failedInARow >= 5)
+                        {
+                            Debug.LogWarning($"Wave {currentWave}: gave up after {failedInARow} failed spawns ({spawned}/{count} spawned)");
+                            break;
+                        }
+                        yield return 0.2f;
+                    }
                 }
 
-                yield return new WaitUntil(()=> enemiesAlive == 0);
+                yield return new WaitUntil(() => enemiesAlive == 0);
                 yield return new WaitForSeconds(waveData.timeBetweenWaves);
             }
         }
 
-        private void SpawnEnemy()
+        private bool TrySpawnEnemy()
         {
             SpawnEntry entry = PickAnEntry();
-            if (entry == null) return;
+            if (entry == null) return false;
 
-            Transform point = spawnPoints[UnityEngine.Random.Range(0, spawnPoints.Length - 1)];
+            for (int i = 0; i < maxSpawnAttempts; i++)
+            {
+                Transform point = spawnPoints[UnityEngine.Random.Range(0, spawnPoints.Length)];
 
-            if (!NavMesh.SamplePosition(point.position, out NavMeshHit hit, 2, NavMesh.AllAreas)) return;
+                Vector2 ring = UnityEngine.Random.insideUnitCircle * spawnRingRadius;
+                Vector3 candidate = point.position + new Vector3(ring.x, 0f, ring.y);
 
-            Enemy enemy = Instantiate(EnemyPrefab, hit.position, Quaternion.identity);
-            enemy.Init(entry.enemyData, player);
-            enemiesAlive++;
+                if (!NavMesh.SamplePosition(candidate, out NavMeshHit hit, sampleRadius, NavMesh.AllAreas))
+                    continue;
+
+                if ((hit.position - player.position).sqrMagnitude < minSpawnDistance * minSpawnDistance)
+                    continue;
+
+                if (Mathf.Abs(hit.position.y - point.position.y) > 1f) continue;
+
+                if (NavMesh.FindClosestEdge(hit.position, out NavMeshHit edge, NavMesh.AllAreas)
+                    && edge.distance < minEdgeDistance) continue;
+
+                Enemy enemy = Instantiate(EnemyPrefab, hit.position, Quaternion.identity);
+                enemy.Init(entry.enemyData, player);
+                enemiesAlive++;
+                return true;
+            }
+
+            return false;
         }
+
+
 
         private SpawnEntry PickAnEntry()
         {
@@ -271,7 +386,7 @@ files:
                 }
             }
 
-            if (total < 0) return null;
+            if (total <= 0) return null;
 
             float roll = UnityEngine.Random.Range(0, total);
             SpawnEntry last = null;
@@ -301,23 +416,23 @@ files:
     \ private float pathCheckCooldown = 0.2f;\n    private float pathCheckTimer =\
     \ 0;\n    private float attackTimer = 0;\n    private bool isInitialized = false;\n\
     \n\n    private void Awake()\n    {\n        agent = GetComponent<NavMeshAgent>();\n\
-    \        health = GetComponent<Health>();\n        pathCheckTimer = pathCheckCooldown;\n\
-    \    }\n\n    private void OnEnable()\n    {\n        health.Dead += OnEnemyDeath;\n\
-    \        \n    }\n    private void OnDisable()\n    {\n        health.Dead -=\
-    \ OnEnemyDeath;\n    }\n\n    public void Init(EnemyData enemyData, Transform\
-    \ target)\n    {\n        data = enemyData;\n        this.target = target;\n \
-    \       agent.speed = data.moveSpeed;\n        agent.stoppingDistance = data.contactRange;\n\
-    \        health.Initialize(enemyData.maxHealth);\n        target.TryGetComponent<Health>(out\
-    \ targetHealth);\n        isInitialized = true;\n        attackTimer = data.damageInterval;\n\
-    \    }\n\n    private void Update()\n    {\n        if (!isInitialized) return;\n\
-    \n        pathCheckTimer -= Time.deltaTime;\n        if(pathCheckTimer < 0)\n\
-    \        {\n            Chase();\n            pathCheckTimer = pathCheckCooldown;\n\
-    \        }\n\n        attackTimer -= Time.deltaTime;\n        bool isInRange =\
-    \ Vector3.Distance(target.position, transform.position) < data.contactRange; \n\
-    \        if(attackTimer <= 0 && isInRange)\n        {\n            Attack();\n\
-    \            attackTimer = data.damageInterval;\n        }\n    }\n\n    private\
-    \ void Chase()\n    {\n        agent.SetDestination(target.position);\n    }\n\
-    \n    private void Attack()\n    {\n        targetHealth.TakeDamage(data.contactDamage);\n\
+    \        health = GetComponent<Health>();\n    }\n\n    private void OnEnable()\n\
+    \    {\n        health.Dead += OnEnemyDeath;\n        \n    }\n    private void\
+    \ OnDisable()\n    {\n        health.Dead -= OnEnemyDeath;\n    }\n\n    public\
+    \ void Init(EnemyData enemyData, Transform target)\n    {\n        data = enemyData;\n\
+    \        this.target = target;\n        agent.speed = data.moveSpeed;\n      \
+    \  agent.stoppingDistance = data.contactRange;\n        health.Initialize(enemyData.maxHealth);\n\
+    \        target.TryGetComponent<Health>(out targetHealth);\n        isInitialized\
+    \ = true;\n        attackTimer = data.damageInterval;\n        pathCheckTimer\
+    \ = Random.Range(0f, pathCheckCooldown);\n    }\n\n    private void Update()\n\
+    \    {\n        if (!isInitialized) return;\n\n        pathCheckTimer -= Time.deltaTime;\n\
+    \        if(pathCheckTimer < 0)\n        {\n            Chase();\n           \
+    \ pathCheckTimer = pathCheckCooldown;\n        }\n\n        attackTimer -= Time.deltaTime;\n\
+    \        bool isInRange = Vector3.Distance(target.position, transform.position)\
+    \ < data.contactRange; \n        if(attackTimer <= 0 && isInRange)\n        {\n\
+    \            Attack();\n            attackTimer = data.damageInterval;\n     \
+    \   }\n    }\n\n    private void Chase()\n    {\n        agent.SetDestination(target.position);\n\
+    \    }\n\n    private void Attack()\n    {\n        targetHealth.TakeDamage(data.contactDamage);\n\
     \    }\n\n    private void OnEnemyDeath()\n    {\n        enemyDiedChannel.EnemyDied(data);\n\
     \        Destroy(gameObject);\n    }\n}\n"
 - name: Enemy\EnemyData.cs
@@ -445,97 +560,26 @@ files:
     \ * Time.deltaTime); \n    }\n\n    public void SetDirection(Vector3 dir)\n  \
     \  {\n        moveDir = dir;\n    }\n}\n"
 - name: Player\PlayerShooter.cs
-  content: |
-    using UnityEngine;
-
-    public class PlayerShooter : MonoBehaviour
-    {
-        [SerializeField] private InputReader inputReader;
-        [SerializeField] private Projectile projectile;
-        [SerializeField] private Transform muzzle;
-        [SerializeField] private Transform aim;
-        [SerializeField] private float fireCooldown = 0.2f;
-        [SerializeField] private float projectileSpeed = 30f;
-        [SerializeField] private float damage = 10f;
-        [SerializeField] private float maxAimDist = 100f;
-        [SerializeField] private LayerMask aimMask;
-        private float nextFireTime;
-
-        private void Update()
-        {
-            if(inputReader.IsFiring && Time.time >= nextFireTime)
-            {
-                nextFireTime = Time.time + fireCooldown;
-                Shoot();
-            }
-        }
-
-        private void Shoot()
-        {
-            Vector3 targetPoint;
-
-            if (Physics.Raycast(aim.position, aim.forward, out RaycastHit hit, maxAimDist, aimMask))
-            {
-                targetPoint = hit.point;
-            }
-            else
-            {
-                targetPoint = aim.position + maxAimDist * aim.forward;
-            }
-
-            Vector3 direction = (targetPoint - muzzle.position).normalized;
-
-            Projectile projectileObj = Instantiate(projectile, muzzle.position,Quaternion.LookRotation(direction));
-            Debug.DrawLine(muzzle.position, targetPoint, Color.green, 1f);
-            projectileObj.Launch(direction, projectileSpeed, damage);
-        }
-    }
-- name: Tests\test.cs
-  content: |
-    using UnityEngine;
-
-    public class test : MonoBehaviour
-    {
-        public Health health;
-        public GameObject projectilePrefab;
-        public Camera cam;
-        public  EnemyData enemyData;
-        public Enemy[] enemies;
-        public Player player;
-
-        private void Start()
-        {
-            //health.Damaged += OnDamaged;
-            //health.Changed += OnHealthChanged;
-            //health.Dead += OnDeath;
-        }
-
-        private void OnDeath()
-        {
-            Debug.Log("Died");
-        }
-
-        private void OnHealthChanged(float ch, float mh)
-        {
-            Debug.Log($"Health decreased to {ch} from max health {mh}");
-        }
-
-        private void OnDamaged(float dmg)
-        {
-            Debug.Log($"Damage Taken: {dmg}");
-        }
-
-        private void Update()
-        {
-            if (Input.GetKeyDown(KeyCode.Space))
-            {
-                foreach (Enemy enemy in enemies)
-                {
-                    enemy.Init(enemyData, player.transform);
-                }
-            }
-        }
-    }
+  content: "using UnityEngine;\n\npublic class PlayerShooter : MonoBehaviour\n{\n\
+    \    [SerializeField] private InputReader inputReader;\n    [SerializeField] private\
+    \ Projectile projectile;\n    [SerializeField] private Transform muzzle;\n   \
+    \ [SerializeField] private Transform aim;\n    [SerializeField] private float\
+    \ fireCooldown = 0.2f;\n    [SerializeField] private float projectileSpeed = 30f;\n\
+    \    [SerializeField] private float damage = 10f;\n    [SerializeField] private\
+    \ float maxAimDist = 100f;\n    [SerializeField] private LayerMask aimMask;\n\
+    \    [SerializeField] private Transform poolContainer;\n    private float nextFireTime;\n\
+    \    private Pool<Projectile> pool;\n\n    private void Awake()\n    {\n     \
+    \   pool = new Pool<Projectile>(projectile, poolContainer, 10);\n    }\n\n   \
+    \ private void Update()\n    {\n        if(inputReader.IsFiring && Time.time >=\
+    \ nextFireTime)\n        {\n            nextFireTime = Time.time + fireCooldown;\n\
+    \            Shoot();\n        }\n    }\n\n    private void Shoot()\n    {\n \
+    \       Vector3 targetPoint;\n\n        if (Physics.Raycast(aim.position, aim.forward,\
+    \ out RaycastHit hit, maxAimDist, aimMask))\n        {\n            targetPoint\
+    \ = hit.point;\n        }\n        else\n        {\n            targetPoint =\
+    \ aim.position + maxAimDist * aim.forward;\n        }\n\n        Vector3 direction\
+    \ = (targetPoint - muzzle.position).normalized;\n\n        Projectile projectileObj\
+    \ = pool.Get();\n        \n        projectileObj.Launch(muzzle.position, direction,\
+    \ projectileSpeed, damage, pool.Release);\n    }\n}\n"
 - name: UI\UIManager.cs
   content: "using TMPro;\nusing UnityEngine;\nusing UnityEngine.UI;\n\npublic class\
     \ UIManager: MonoBehaviour\n{\n    [SerializeField] private ScoreManager scoreManager;\n\
@@ -545,14 +589,16 @@ files:
     \ private Slider playerHealthbar;\n    [SerializeField] private TextMeshProUGUI\
     \ healthTxt;\n    [SerializeField] private TextMeshProUGUI scoreTxt;\n    [SerializeField]\
     \ private TextMeshProUGUI waveTxt;\n    [SerializeField] private TextMeshProUGUI\
-    \ killsTxt;\n\n    [SerializeField] private GameObject gameOverPanel;\n    [SerializeField]\
-    \ private Button retryBtn;\n\n\n    private void OnEnable()\n    {\n        playerHealth.Changed\
-    \ += OnPlayerHelathChange;\n        gameManager.OnStateChange += OnGameStateChanged;\n\
-    \        waveManager.WaveChanged += OnWaveChanged;\n        scoreManager.ScoreChanged\
-    \ += OnScoreChanged;\n        waveManager.EnemyKilled += OnEnemyKill;\n    }\n\
-    \n    private void OnGameStateChanged(GameManager.GameState state)\n    {\n  \
-    \      if(state == GameManager.GameState.GameOver) ShowGameOver();\n    }\n\n\
-    \    private void OnEnemyKill(int kills)\n    {\n        UpdateKillsUI(kills);\n\
+    \ killsTxt;\n    [SerializeField] private TextMeshProUGUI enemiesTxt;\n\n    [SerializeField]\
+    \ private GameObject gameOverPanel;\n    [SerializeField] private Button retryBtn;\n\
+    \n\n    private void OnEnable()\n    {\n        playerHealth.Changed += OnPlayerHelathChange;\n\
+    \        gameManager.OnStateChange += OnGameStateChanged;\n        waveManager.WaveChanged\
+    \ += OnWaveChanged;\n        scoreManager.ScoreChanged += OnScoreChanged;\n  \
+    \      waveManager.EnemyKilled += OnEnemyKill;\n        waveManager.EnemiesChanged\
+    \ += OnEnemiesSpawned;\n    }\n\n    private void OnEnemiesSpawned(int enemies)\n\
+    \    {\n        UpdateEnemiesCountUI(enemies);\n    }\n\n    private void OnGameStateChanged(GameManager.GameState\
+    \ state)\n    {\n        if(state == GameManager.GameState.GameOver) ShowGameOver();\n\
+    \    }\n\n    private void OnEnemyKill(int kills)\n    {\n        UpdateKillsUI(kills);\n\
     \    }\n\n    private void OnScoreChanged(int score)\n    {\n        UpdateScoreUI(score);\n\
     \    }\n\n    private void OnWaveChanged(int wave)\n    {\n        UpdateWavesUI(wave);\n\
     \    }\n\n    private void Start()\n    {\n        UpdatePlayerHealthUI(100);\n\
@@ -561,10 +607,12 @@ files:
     \        });\n        gameOverPanel.SetActive(false);\n    }\n\n    private void\
     \ OnPlayerHelathChange(float currentHealth, float maxHealth)\n    {\n        UpdatePlayerHealthUI(currentHealth);\n\
     \    }\n\n    private void UpdatePlayerHealthUI(float updatedHealth)\n    {\n\
-    \        playerHealthbar.value = updatedHealth;\n        healthTxt.text = updatedHealth.ToString();\n\
-    \    }\n\n    \n\n    private void UpdateWavesUI(int wave)\n    {\n        waveTxt.text\
-    \ = $\"WAVE {wave}\";\n    }\n\n    private void UpdateKillsUI(int kills)\n  \
-    \  {\n        killsTxt.text = $\"Kills: {kills}\";\n    }\n    private void UpdateScoreUI(int\
-    \ score)\n    {\n        scoreTxt.text = $\"Score: {score}\";\n    }\n\n    private\
-    \ void ShowGameOver()\n    {\n        gameOverPanel.SetActive(true);\n    }\n\
-    }\n"
+    \        playerHealthbar.value = updatedHealth * 0.01f;\n        healthTxt.text\
+    \ = updatedHealth.ToString();\n    }\n\n    \n\n    private void UpdateWavesUI(int\
+    \ wave)\n    {\n        waveTxt.text = $\"WAVE {wave}\";\n    }\n    private void\
+    \ UpdateEnemiesCountUI(int enemiesAlive)\n    {\n        enemiesTxt.text = $\"\
+    Enemies: {enemiesAlive}\";\n    }\n\n    private void UpdateKillsUI(int kills)\n\
+    \    {\n        killsTxt.text = $\"Kills: {kills}\";\n    }\n    private void\
+    \ UpdateScoreUI(int score)\n    {\n        scoreTxt.text = $\"Score: {score}\"\
+    ;\n    }\n\n    private void ShowGameOver()\n    {\n        gameOverPanel.SetActive(true);\n\
+    \    }\n}\n"

@@ -18,4 +18,5 @@ public class WaveData : ScriptableObject
     public float baseSpawnInterval;
     public float intervalReductionPerWave;
     public float minSpawnInterval;
+    public int maxAlive = 50;
 }

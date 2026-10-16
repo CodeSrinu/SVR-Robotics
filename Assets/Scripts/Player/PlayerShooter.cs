@@ -11,7 +11,14 @@ public class PlayerShooter : MonoBehaviour
     [SerializeField] private float damage = 10f;
     [SerializeField] private float maxAimDist = 100f;
     [SerializeField] private LayerMask aimMask;
+    [SerializeField] private Transform poolContainer;
     private float nextFireTime;
+    private Pool<Projectile> pool;
+
+    private void Awake()
+    {
+        pool = new Pool<Projectile>(projectile, poolContainer, 10);
+    }
 
     private void Update()
     {
@@ -37,8 +44,8 @@ public class PlayerShooter : MonoBehaviour
 
         Vector3 direction = (targetPoint - muzzle.position).normalized;
 
-        Projectile projectileObj = Instantiate(projectile, muzzle.position,Quaternion.LookRotation(direction));
-        Debug.DrawLine(muzzle.position, targetPoint, Color.green, 1f);
-        projectileObj.Launch(direction, projectileSpeed, damage);
+        Projectile projectileObj = pool.Get();
+        
+        projectileObj.Launch(muzzle.position, direction, projectileSpeed, damage, pool.Release);
     }
 }
