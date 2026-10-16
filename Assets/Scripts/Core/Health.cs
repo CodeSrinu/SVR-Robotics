@@ -14,9 +14,14 @@ public class Health : MonoBehaviour
     public float CurrentHealth => currentHealth;
     public bool IsDead { get; private set; }
 
+    private void Awake()
+    {
+        ResetHealth();
+    }
+
     public void TakeDamage(float damage)
     {
-        if(IsDead) return;
+        if (IsDead) return;
 
         if(currentHealth - damage > 0)
         {

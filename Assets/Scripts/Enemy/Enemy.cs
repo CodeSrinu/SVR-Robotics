@@ -58,7 +58,7 @@ public class Enemy : MonoBehaviour
 
         attackTimer -= Time.deltaTime;
         bool isInRange = Vector3.Distance(target.position, transform.position) < data.contactRange; 
-        if(attackTimer < 0 && isInRange)
+        if(attackTimer <= 0 && isInRange)
         {
             Attack();
             attackTimer = data.damageInterval;

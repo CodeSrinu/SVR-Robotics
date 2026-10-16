@@ -1,0 +1,570 @@
+tasks:
+- message: Example task 1
+project_structure:
+- Core\GameManager.cs
+- Core\Health.cs
+- Core\Projectile.cs
+- Core\ScoreManager.cs
+- Core\WaveData.cs
+- Core\WaveManager.cs
+- Enemy\Enemy.cs
+- Enemy\EnemyData.cs
+- Enemy\EnemyDiedChannel.cs
+- Player\InputReader.cs
+- Player\Player.cs
+- Player\PlayerLook.cs
+- Player\PlayerMover.cs
+- Player\PlayerShooter.cs
+- Tests\test.cs
+- UI\UIManager.cs
+files:
+- name: Core\GameManager.cs
+  content: |
+    using System;
+    using UnityEngine;
+    using UnityEngine.SceneManagement;
+
+    public class GameManager : MonoBehaviour
+    {
+        [SerializeField] private Health playerHealth;
+        [SerializeField] private WaveManager waveManager;
+        [SerializeField] private InputReader inputReader;
+
+
+        public enum GameState {None, Playing, GameOver}
+        public GameState state;
+
+        public event Action<GameState> OnStateChange;
+
+        private void Start()
+        {
+            state = GameState.None;
+            OnStateChange?.Invoke(state);
+
+            Cursor.lockState = CursorLockMode.Locked;
+        }
+
+        private void OnEnable()
+        {
+            playerHealth.Dead += OnPlayerDeath;
+        }
+
+        private void OnPlayerDeath()
+        {
+            state = GameState.GameOver;
+            waveManager.StopWaves();
+            inputReader.enabled = false;
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            Time.timeScale = 0f;
+            OnStateChange?.Invoke(state);
+        }
+
+        public void Restart()
+        {
+            Time.timeScale = 1f;
+            SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        }
+    }
+- name: Core\Health.cs
+  content: "using System;\nusing UnityEngine;\n\npublic class Health : MonoBehaviour\n\
+    {\n    [SerializeField] private float maxHealth = 100f;\n    private float currentHealth;\n\
+    \n    public event Action<float> Damaged;\n    public event Action<float, float>\
+    \ Changed;\n    public event Action Dead;\n\n    public float MaxHealth => maxHealth;\n\
+    \    public float CurrentHealth => currentHealth;\n    public bool IsDead { get;\
+    \ private set; }\n\n    public void TakeDamage(float damage)\n    {\n        if\
+    \ (IsDead) return;\n\n        if(currentHealth - damage > 0)\n        {\n    \
+    \        currentHealth -= damage;\n            Damaged?.Invoke(damage);\n    \
+    \        Changed?.Invoke(currentHealth, maxHealth);\n        }\n        else\n\
+    \        {\n            currentHealth = 0;\n            IsDead = true;\n     \
+    \       Damaged?.Invoke(damage);  \n            Changed?.Invoke(currentHealth,\
+    \ maxHealth);\n            Dead?.Invoke();\n        }\n    }\n\n    public void\
+    \ Initialize(float health)\n    {\n        maxHealth = health;\n        ResetHealth();\n\
+    \    }\n\n    public void ResetHealth()\n    {\n        currentHealth = maxHealth;\n\
+    \        Changed?.Invoke(currentHealth, maxHealth);\n        IsDead = false;\n\
+    \    }\n}\n"
+- name: Core\Projectile.cs
+  content: |
+    using UnityEngine;
+
+    public class Projectile : MonoBehaviour
+    {
+        [SerializeField] private float lifeSpan = 5f;
+        private float damage;
+        private Rigidbody rb;
+        private float expireTime;
+
+        private void Awake()
+        {
+            rb = GetComponent<Rigidbody>();
+            rb.useGravity = false;
+        }
+
+        private void Update()
+        {
+            if(Time.time >  expireTime) Release();
+
+            expireTime -= Time.deltaTime;
+        }
+
+        public void Launch(Vector3 dir, float speed, float dmg)
+        {
+            transform.forward = dir;
+            rb.velocity = dir * speed;
+            damage = dmg;
+            expireTime = Time.time + lifeSpan;
+        }
+
+        private void OnTriggerEnter(Collider other)
+        {
+            if (other.CompareTag("Player")) return;
+
+            if(other.TryGetComponent<Health>(out Health health))
+            {
+                health.TakeDamage(damage);
+            }
+            Release();
+        }
+
+        private void Release()
+        {
+            Destroy(gameObject);
+        }
+    }
+- name: Core\ScoreManager.cs
+  content: |
+    using System;
+    using UnityEngine;
+
+    public class ScoreManager : MonoBehaviour
+    {
+        [SerializeField] private EnemyDiedChannel enemyDiedChannel;
+        private int score = 0;
+        public event Action<int> ScoreChanged;
+
+        private void OnEnable()
+        {
+            enemyDiedChannel.Raised += OnEnemyDeath;
+        }
+
+        private void OnDisable()
+        {
+            enemyDiedChannel.Raised -= OnEnemyDeath;
+        }
+
+        private void OnEnemyDeath(EnemyData enemyData)
+        {
+            score += enemyData.scoreValue;
+            ScoreChanged?.Invoke(score);
+            Debug.Log("Score: "+score);
+        }
+    }
+- name: Core\WaveData.cs
+  content: |
+    using System.Collections.Generic;
+    using UnityEngine;
+
+    [System.Serializable]
+    public class SpawnEntry
+    {
+        public EnemyData enemyData;
+        public int unlockWave;
+        public float weight;
+    }
+    [CreateAssetMenu(fileName ="NewWaveData", menuName ="ScriptableObjs/WaveData")]
+    public class WaveData : ScriptableObject
+    {
+        public List<SpawnEntry> spawnEntries;
+        public float timeBetweenWaves;
+        public int baseEnemyCount;
+        public int extraEnemiesPerWave;
+        public float baseSpawnInterval;
+        public float intervalReductionPerWave;
+        public float minSpawnInterval;
+    }
+- name: Core\WaveManager.cs
+  content: |
+    using System;
+    using System.Collections;
+    using UnityEngine;
+    using UnityEngine.AI;
+
+    public class WaveManager : MonoBehaviour
+    {
+        [SerializeField] private WaveData waveData;
+        [SerializeField] private Enemy EnemyPrefab;
+        [SerializeField] private Transform player;
+        [SerializeField] private EnemyDiedChannel enemyDiedChannel;
+        [SerializeField] private Transform[] spawnPoints;
+        public event Action<int> EnemyKilled;
+
+
+        private int currentWave = 0;
+        private int enemiesAlive;
+        private int enemiesKilled = 0;
+
+        public event Action<int> WaveChanged;
+        private Coroutine wavesCoroutine;
+        private void OnEnable()
+        {
+            enemyDiedChannel.Raised += OnEnemyDeath;
+        }
+        private void OnDisable()
+        {
+            enemyDiedChannel.Raised -= OnEnemyDeath;
+        }
+
+        private void Start()
+        {
+            wavesCoroutine = StartCoroutine(RunWaves());
+        }
+
+        private void OnEnemyDeath(EnemyData enemyData)
+        {
+            enemiesAlive--;
+            enemiesKilled++;
+            EnemyKilled?.Invoke(enemiesKilled);
+        }
+
+        private IEnumerator RunWaves()
+        {
+            while (true)
+            {
+                currentWave++;
+                WaveChanged?.Invoke(currentWave);
+                int count = waveData.baseEnemyCount + waveData.extraEnemiesPerWave * (currentWave - 1);
+                float interval = Mathf.Max(waveData.minSpawnInterval,
+                    waveData.baseSpawnInterval - waveData.intervalReductionPerWave * (currentWave - 1));
+                for (int i = 0; i < count; i++)
+                {
+                    SpawnEnemy();
+                    yield return new WaitForSeconds(interval);
+                }
+
+                yield return new WaitUntil(()=> enemiesAlive == 0);
+                yield return new WaitForSeconds(waveData.timeBetweenWaves);
+            }
+        }
+
+        private void SpawnEnemy()
+        {
+            SpawnEntry entry = PickAnEntry();
+            if (entry == null) return;
+
+            Transform point = spawnPoints[UnityEngine.Random.Range(0, spawnPoints.Length - 1)];
+
+            if (!NavMesh.SamplePosition(point.position, out NavMeshHit hit, 2, NavMesh.AllAreas)) return;
+
+            Enemy enemy = Instantiate(EnemyPrefab, hit.position, Quaternion.identity);
+            enemy.Init(entry.enemyData, player);
+            enemiesAlive++;
+        }
+
+        private SpawnEntry PickAnEntry()
+        {
+            float total = 0;
+            foreach(SpawnEntry entry in waveData.spawnEntries)
+            {
+                if(currentWave >= entry.unlockWave)
+                {
+                    total += entry.weight;
+                }
+            }
+
+            if (total < 0) return null;
+
+            float roll = UnityEngine.Random.Range(0, total);
+            SpawnEntry last = null;
+
+            foreach(SpawnEntry entry in waveData.spawnEntries)
+            {
+                if(entry.unlockWave > currentWave) continue;
+
+                last = entry;
+                roll -= entry.weight;
+                if (roll < 0) return entry;
+            }
+
+            return last;
+        }
+
+        public void StopWaves()
+        {
+            StopCoroutine(wavesCoroutine);
+        }
+    }
+- name: Enemy\Enemy.cs
+  content: "using UnityEngine;\nusing UnityEngine.AI;\n\npublic class Enemy : MonoBehaviour\n\
+    {\n    private EnemyData data;\n    private Transform target;\n    private Health\
+    \ health;\n    private Health targetHealth;\n    private NavMeshAgent agent;\n\
+    \    [SerializeField] private EnemyDiedChannel enemyDiedChannel;\n\n    [SerializeField]\
+    \ private float pathCheckCooldown = 0.2f;\n    private float pathCheckTimer =\
+    \ 0;\n    private float attackTimer = 0;\n    private bool isInitialized = false;\n\
+    \n\n    private void Awake()\n    {\n        agent = GetComponent<NavMeshAgent>();\n\
+    \        health = GetComponent<Health>();\n        pathCheckTimer = pathCheckCooldown;\n\
+    \    }\n\n    private void OnEnable()\n    {\n        health.Dead += OnEnemyDeath;\n\
+    \        \n    }\n    private void OnDisable()\n    {\n        health.Dead -=\
+    \ OnEnemyDeath;\n    }\n\n    public void Init(EnemyData enemyData, Transform\
+    \ target)\n    {\n        data = enemyData;\n        this.target = target;\n \
+    \       agent.speed = data.moveSpeed;\n        agent.stoppingDistance = data.contactRange;\n\
+    \        health.Initialize(enemyData.maxHealth);\n        target.TryGetComponent<Health>(out\
+    \ targetHealth);\n        isInitialized = true;\n        attackTimer = data.damageInterval;\n\
+    \    }\n\n    private void Update()\n    {\n        if (!isInitialized) return;\n\
+    \n        pathCheckTimer -= Time.deltaTime;\n        if(pathCheckTimer < 0)\n\
+    \        {\n            Chase();\n            pathCheckTimer = pathCheckCooldown;\n\
+    \        }\n\n        attackTimer -= Time.deltaTime;\n        bool isInRange =\
+    \ Vector3.Distance(target.position, transform.position) < data.contactRange; \n\
+    \        if(attackTimer <= 0 && isInRange)\n        {\n            Attack();\n\
+    \            attackTimer = data.damageInterval;\n        }\n    }\n\n    private\
+    \ void Chase()\n    {\n        agent.SetDestination(target.position);\n    }\n\
+    \n    private void Attack()\n    {\n        targetHealth.TakeDamage(data.contactDamage);\n\
+    \    }\n\n    private void OnEnemyDeath()\n    {\n        enemyDiedChannel.EnemyDied(data);\n\
+    \        Destroy(gameObject);\n    }\n}\n"
+- name: Enemy\EnemyData.cs
+  content: |
+    using UnityEngine;
+
+    [CreateAssetMenu(fileName = "NewEnemyData", menuName = "ScriptableObjs/EnemyData")]
+    public class EnemyData : ScriptableObject
+    {
+        public float maxHealth;
+        public float moveSpeed;
+        public float contactDamage;
+        public float contactRange;
+        public float damageInterval;
+        public int scoreValue;
+
+
+    }
+- name: Enemy\EnemyDiedChannel.cs
+  content: |
+    using System;
+    using UnityEngine;
+
+    [CreateAssetMenu(fileName = "NewChannel", menuName = "ScriptableObjs/enemyDiedChannel")]
+    public class EnemyDiedChannel : ScriptableObject
+    {
+        public event Action<EnemyData> Raised;
+
+        public void EnemyDied(EnemyData data)
+        {
+            Raised?.Invoke(data);
+        }
+    }
+- name: Player\InputReader.cs
+  content: |
+    using UnityEngine;
+    using UnityEngine.InputSystem;
+
+    public class InputReader : MonoBehaviour
+    {
+        [SerializeField] private InputActionReference moveActionRef;
+        [SerializeField] private InputActionReference lookActionRef;
+        [SerializeField] private InputActionReference fireActionRef;
+
+
+        public Vector2 MoveDir => moveActionRef.action.ReadValue<Vector2>();
+        public Vector2 LookDir => lookActionRef.action.ReadValue<Vector2>();
+        public bool IsFiring {get; private set;}
+        private void OnEnable()
+        {
+            moveActionRef.action.Enable();
+            lookActionRef.action.Enable();
+            fireActionRef.action.Enable();
+
+            fireActionRef.action.started += OnFireStarted;
+            fireActionRef.action.canceled += OnFireCanceled;
+
+
+        }
+
+        private void OnDisable()
+        {
+            moveActionRef.action.Disable();
+            lookActionRef.action.Disable();
+            fireActionRef.action.Disable();
+
+            fireActionRef.action.started -= OnFireStarted;
+            fireActionRef.action.canceled -= OnFireCanceled;
+        }
+
+        private void OnFireStarted(InputAction.CallbackContext obj)
+        {
+            IsFiring = true;
+        }
+
+        private void OnFireCanceled(InputAction.CallbackContext obj)
+        {
+            IsFiring = false;
+        }
+
+
+    }
+- name: Player\Player.cs
+  content: "using UnityEngine;\n\npublic class Player : MonoBehaviour\n{\n    private\
+    \ InputReader inputReader;\n    private PlayerMover mover;\n    private PlayerLook\
+    \ look;\n\n    private void Start()\n    {\n        inputReader = GetComponent<InputReader>();\n\
+    \        mover = GetComponent<PlayerMover>();\n        look = GetComponent<PlayerLook>();\n\
+    \n    }\n\n    private void Update()\n    {\n        look.Look(inputReader.LookDir);\n\
+    \n        Vector2 input = inputReader.MoveDir;\n        Vector3 dir = transform.right\
+    \ * input.x + transform.forward * input.y;\n        dir = Vector3.ClampMagnitude(dir,\
+    \ 1f); \n        mover.SetDirection(dir);\n    }\n}\n"
+- name: Player\PlayerLook.cs
+  content: |
+    using UnityEngine;
+
+    public class PlayerLook : MonoBehaviour
+    {
+        [SerializeField] private Transform camTransform;
+        [SerializeField] private float sensitivity = 1.0f;
+        [SerializeField] private float minPitch = -80f;
+        [SerializeField] private float maxPitch = 80f;
+        private float pitch;
+
+        public void Look(Vector2 delta)
+        {
+            transform.Rotate(Vector3.up * delta.x * sensitivity);
+            pitch -= delta.y * sensitivity;
+            pitch = Mathf.Clamp(pitch, minPitch, maxPitch);
+
+            camTransform.localRotation = Quaternion.Euler(pitch, 0, 0);
+        }
+    }
+- name: Player\PlayerMover.cs
+  content: "using UnityEngine;\n\n[RequireComponent(typeof(CharacterController))]\n\
+    public class PlayerMover : MonoBehaviour\n{\n    [SerializeField] private float\
+    \ moveSpeed = 8;\n    [SerializeField] private float acceleration = 30;\n    [SerializeField]\
+    \ private float gravity = -20f;\n\n    private Vector3 moveDir;\n    private CharacterController\
+    \ characterController;\n    private Vector3 moveVelocity;\n    private float verticalVelocity;\n\
+    \n    private void Awake()\n    {\n        characterController = GetComponent<CharacterController>();\n\
+    \    }\n\n    private void Update()\n    {\n        moveVelocity = Vector3.MoveTowards(moveVelocity,\
+    \ moveSpeed * moveDir, acceleration * Time.deltaTime);\n        if(characterController.isGrounded\
+    \ && verticalVelocity < 0)\n        {\n            verticalVelocity = -2f;\n \
+    \       }\n        verticalVelocity += gravity * Time.deltaTime;\n\n        Vector3\
+    \ velocity = moveVelocity + Vector3.up * verticalVelocity;\n\n        characterController.Move(velocity\
+    \ * Time.deltaTime); \n    }\n\n    public void SetDirection(Vector3 dir)\n  \
+    \  {\n        moveDir = dir;\n    }\n}\n"
+- name: Player\PlayerShooter.cs
+  content: |
+    using UnityEngine;
+
+    public class PlayerShooter : MonoBehaviour
+    {
+        [SerializeField] private InputReader inputReader;
+        [SerializeField] private Projectile projectile;
+        [SerializeField] private Transform muzzle;
+        [SerializeField] private Transform aim;
+        [SerializeField] private float fireCooldown = 0.2f;
+        [SerializeField] private float projectileSpeed = 30f;
+        [SerializeField] private float damage = 10f;
+        [SerializeField] private float maxAimDist = 100f;
+        [SerializeField] private LayerMask aimMask;
+        private float nextFireTime;
+
+        private void Update()
+        {
+            if(inputReader.IsFiring && Time.time >= nextFireTime)
+            {
+                nextFireTime = Time.time + fireCooldown;
+                Shoot();
+            }
+        }
+
+        private void Shoot()
+        {
+            Vector3 targetPoint;
+
+            if (Physics.Raycast(aim.position, aim.forward, out RaycastHit hit, maxAimDist, aimMask))
+            {
+                targetPoint = hit.point;
+            }
+            else
+            {
+                targetPoint = aim.position + maxAimDist * aim.forward;
+            }
+
+            Vector3 direction = (targetPoint - muzzle.position).normalized;
+
+            Projectile projectileObj = Instantiate(projectile, muzzle.position,Quaternion.LookRotation(direction));
+            Debug.DrawLine(muzzle.position, targetPoint, Color.green, 1f);
+            projectileObj.Launch(direction, projectileSpeed, damage);
+        }
+    }
+- name: Tests\test.cs
+  content: |
+    using UnityEngine;
+
+    public class test : MonoBehaviour
+    {
+        public Health health;
+        public GameObject projectilePrefab;
+        public Camera cam;
+        public  EnemyData enemyData;
+        public Enemy[] enemies;
+        public Player player;
+
+        private void Start()
+        {
+            //health.Damaged += OnDamaged;
+            //health.Changed += OnHealthChanged;
+            //health.Dead += OnDeath;
+        }
+
+        private void OnDeath()
+        {
+            Debug.Log("Died");
+        }
+
+        private void OnHealthChanged(float ch, float mh)
+        {
+            Debug.Log($"Health decreased to {ch} from max health {mh}");
+        }
+
+        private void OnDamaged(float dmg)
+        {
+            Debug.Log($"Damage Taken: {dmg}");
+        }
+
+        private void Update()
+        {
+            if (Input.GetKeyDown(KeyCode.Space))
+            {
+                foreach (Enemy enemy in enemies)
+                {
+                    enemy.Init(enemyData, player.transform);
+                }
+            }
+        }
+    }
+- name: UI\UIManager.cs
+  content: "using TMPro;\nusing UnityEngine;\nusing UnityEngine.UI;\n\npublic class\
+    \ UIManager: MonoBehaviour\n{\n    [SerializeField] private ScoreManager scoreManager;\n\
+    \    [SerializeField] private WaveManager waveManager;\n    [SerializeField] private\
+    \ Health playerHealth;\n    [SerializeField] private GameManager gameManager;\n\
+    \    [SerializeField] private EnemyDiedChannel enemyDiedChannel;\n\n    [SerializeField]\
+    \ private Slider playerHealthbar;\n    [SerializeField] private TextMeshProUGUI\
+    \ healthTxt;\n    [SerializeField] private TextMeshProUGUI scoreTxt;\n    [SerializeField]\
+    \ private TextMeshProUGUI waveTxt;\n    [SerializeField] private TextMeshProUGUI\
+    \ killsTxt;\n\n    [SerializeField] private GameObject gameOverPanel;\n    [SerializeField]\
+    \ private Button retryBtn;\n\n\n    private void OnEnable()\n    {\n        playerHealth.Changed\
+    \ += OnPlayerHelathChange;\n        gameManager.OnStateChange += OnGameStateChanged;\n\
+    \        waveManager.WaveChanged += OnWaveChanged;\n        scoreManager.ScoreChanged\
+    \ += OnScoreChanged;\n        waveManager.EnemyKilled += OnEnemyKill;\n    }\n\
+    \n    private void OnGameStateChanged(GameManager.GameState state)\n    {\n  \
+    \      if(state == GameManager.GameState.GameOver) ShowGameOver();\n    }\n\n\
+    \    private void OnEnemyKill(int kills)\n    {\n        UpdateKillsUI(kills);\n\
+    \    }\n\n    private void OnScoreChanged(int score)\n    {\n        UpdateScoreUI(score);\n\
+    \    }\n\n    private void OnWaveChanged(int wave)\n    {\n        UpdateWavesUI(wave);\n\
+    \    }\n\n    private void Start()\n    {\n        UpdatePlayerHealthUI(100);\n\
+    \        UpdateWavesUI(1);\n        UpdateKillsUI(0);\n        UpdateScoreUI(0);\n\
+    \n        retryBtn.onClick.AddListener(() =>\n        {\n            gameManager.Restart();\n\
+    \        });\n        gameOverPanel.SetActive(false);\n    }\n\n    private void\
+    \ OnPlayerHelathChange(float currentHealth, float maxHealth)\n    {\n        UpdatePlayerHealthUI(currentHealth);\n\
+    \    }\n\n    private void UpdatePlayerHealthUI(float updatedHealth)\n    {\n\
+    \        playerHealthbar.value = updatedHealth;\n        healthTxt.text = updatedHealth.ToString();\n\
+    \    }\n\n    \n\n    private void UpdateWavesUI(int wave)\n    {\n        waveTxt.text\
+    \ = $\"WAVE {wave}\";\n    }\n\n    private void UpdateKillsUI(int kills)\n  \
+    \  {\n        killsTxt.text = $\"Kills: {kills}\";\n    }\n    private void UpdateScoreUI(int\
+    \ score)\n    {\n        scoreTxt.text = $\"Score: {score}\";\n    }\n\n    private\
+    \ void ShowGameOver()\n    {\n        gameOverPanel.SetActive(true);\n    }\n\
+    }\n"

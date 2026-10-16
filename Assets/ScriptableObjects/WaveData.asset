@@ -20,8 +20,8 @@ MonoBehaviour:
     unlockWave: 3
     weight: 30
   timeBetweenWaves: 5
-  baseEnemyCount: 10
+  baseEnemyCount: 4
   extraEnemiesPerWave: 2
-  baseSpawnInterval: 0
+  baseSpawnInterval: 2
   intervalReductionPerWave: 0.15
   minSpawnInterval: 0.6

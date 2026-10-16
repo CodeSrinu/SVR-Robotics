@@ -9,14 +9,14 @@ public class GameManager : MonoBehaviour
     [SerializeField] private InputReader inputReader;
 
 
-    public enum GameState { Playing, GameOver}
+    public enum GameState {None, Playing, GameOver}
     public GameState state;
 
     public event Action<GameState> OnStateChange;
 
     private void Start()
     {
-        state = GameState.Playing;
+        state = GameState.None;
         OnStateChange?.Invoke(state);
 
         Cursor.lockState = CursorLockMode.Locked;
