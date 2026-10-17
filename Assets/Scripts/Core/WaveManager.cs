@@ -91,7 +91,7 @@ public class WaveManager : MonoBehaviour
                     failedInARow++;
                     if (failedInARow >= 5)
                     {
-                        Debug.LogWarning($"Wave {currentWave}: gave up after {failedInARow} failed spawns ({spawned}/{count} spawned)");
+                        //Debug.LogWarning($"Wave {currentWave}: gave up after {failedInARow} failed spawns ({spawned}/{count} spawned)");
                         break;
                     }
                     yield return new WaitForSeconds(0.2f);
@@ -162,7 +162,7 @@ public class WaveManager : MonoBehaviour
             if (roll < 0) return entry;
         }
 
-        return last;
+        return waveData.spawnEntries[0];
     }
 
     public void StopWaves()
