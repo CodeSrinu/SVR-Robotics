@@ -37,7 +37,7 @@ public class AudioManager : MonoBehaviour
 
     private void OnPlayerHurt(float damage)
     {
-        PlaySfx(hurtClip);
+        PlaySfx(hurtClip, 1f);
     }
 
     private void OnEnemyDeath(EnemyData enemyData)
@@ -53,11 +53,11 @@ public class AudioManager : MonoBehaviour
         gameOverSource.PlayOneShot(gameOverClip);
     }
 
-    private void PlaySfx(AudioClip clip)
+    private void PlaySfx(AudioClip clip, float vol = 0.4f)
     {
         if (clip == null) return;
 
         sfxSource.pitch = UnityEngine.Random.Range(0.95f, 1.05f);
-        sfxSource.PlayOneShot(clip);
+        sfxSource.PlayOneShot(clip, vol);
     }
 }
