@@ -21,6 +21,5 @@ public class ScoreManager : MonoBehaviour
     {
         score += enemyData.scoreValue;
         ScoreChanged?.Invoke(score);
-        Debug.Log("Score: "+score);
     }
 }

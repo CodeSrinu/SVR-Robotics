@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 public class PlayerShooter : MonoBehaviour
@@ -12,8 +13,10 @@ public class PlayerShooter : MonoBehaviour
     [SerializeField] private float maxAimDist = 100f;
     [SerializeField] private LayerMask aimMask;
     [SerializeField] private Transform poolContainer;
+    [SerializeField] private ParticleSystem muzzleFlashEffect;
     private float nextFireTime;
     private Pool<Projectile> pool;
+    public event Action ShotFired;
 
     private void Awake()
     {
@@ -31,6 +34,10 @@ public class PlayerShooter : MonoBehaviour
 
     private void Shoot()
     {
+
+        muzzleFlashEffect.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        muzzleFlashEffect.Play(true);
+        ShotFired?.Invoke();
         Vector3 targetPoint;
 
         if (Physics.Raycast(aim.position, aim.forward, out RaycastHit hit, maxAimDist, aimMask))

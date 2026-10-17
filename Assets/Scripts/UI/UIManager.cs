@@ -83,7 +83,7 @@ public class UIManager: MonoBehaviour
     private void UpdatePlayerHealthUI(float updatedHealth)
     {
         playerHealthbar.value = updatedHealth * 0.01f;
-        healthTxt.text = updatedHealth.ToString();
+        healthTxt.text = updatedHealth.ToString("F0");
     }
 
     

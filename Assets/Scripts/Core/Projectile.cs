@@ -1,6 +1,5 @@
 using System;
 using UnityEngine;
-using static UnityEditor.PlayerSettings;
 
 public class Projectile : MonoBehaviour
 {
@@ -10,10 +9,13 @@ public class Projectile : MonoBehaviour
     private float expireTime;
     private Action<Projectile> OnRelease;
     private bool isReleased;
+    [SerializeField] private VfxManager vfxManager;   
+    private TrailRenderer trail;
 
     private void Awake()
     {
         rb = GetComponent<Rigidbody>();
+        trail = GetComponent<TrailRenderer>();
         rb.useGravity = false;
     }
 
@@ -24,6 +26,8 @@ public class Projectile : MonoBehaviour
 
     public void Launch(Vector3 pos, Vector3 dir, float speed, float dmg, Action<Projectile> action)
     {
+        trail.Clear();
+        trail.enabled = false;
         transform.position = pos;
         transform.forward = dir;
         rb.velocity = dir * speed;
@@ -31,11 +35,14 @@ public class Projectile : MonoBehaviour
         OnRelease = action;
         expireTime = Time.time + lifeSpan;
         isReleased = false;
+        trail.enabled = true;
+
     }
 
     private void OnTriggerEnter(Collider other)
     {
         if (isReleased) return;
+        vfxManager.PlayImpact(other.transform.position);
 
         if (other.CompareTag("Player")) return;
 
@@ -52,5 +59,6 @@ public class Projectile : MonoBehaviour
 
         OnRelease?.Invoke(this);
         isReleased = true;
+        trail.enabled = false;
     }
 }

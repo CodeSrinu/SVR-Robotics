@@ -1,7 +1,6 @@
 using System;
 using UnityEngine;
 using UnityEngine.AI;
-using UnityEngine.ProBuilder;
 
 public class Enemy : MonoBehaviour
 {
@@ -103,8 +102,4 @@ public class Enemy : MonoBehaviour
         OnRelease?.Invoke(this);
     }
 
-    private void UpdateEnemyMat(Material mat)
-    {
-        GetComponent<MeshRenderer>().material = mat;
-    }
 }
