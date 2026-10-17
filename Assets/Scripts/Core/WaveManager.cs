@@ -65,6 +65,7 @@ public class WaveManager : MonoBehaviour
             int count = waveData.baseEnemyCount + waveData.extraEnemiesPerWave * (currentWave - 1);
             float interval = Mathf.Max(waveData.minSpawnInterval,
                 waveData.baseSpawnInterval - waveData.intervalReductionPerWave * (currentWave - 1));
+            var scale = DifficultyScale.Compute(waveData, currentWave);
 
             int spawned = 0;
             int failedInARow = 0;
@@ -77,7 +78,7 @@ public class WaveManager : MonoBehaviour
                     continue;
                 }
 
-                if (TrySpawnEnemy())
+                if (TrySpawnEnemy(scale))
                 {
                     spawned++;
                     currentEnemyCount++;
@@ -102,7 +103,7 @@ public class WaveManager : MonoBehaviour
         }
     }
 
-    private bool TrySpawnEnemy()
+    private bool TrySpawnEnemy(DifficultyScale scale)
     {
         SpawnEntry entry = PickAnEntry();
         if (entry == null) return false;
@@ -126,7 +127,7 @@ public class WaveManager : MonoBehaviour
                 && edge.distance < minEdgeDistance) continue;
 
             Enemy enemy = enemiesPool.Get();
-            enemy.Init(entry.enemyData, player, hit.position, enemiesPool.Release);
+            enemy.Init(entry.enemyData, player, hit.position, enemiesPool.Release,scale);
             enemiesAlive++;
             return true;
         }

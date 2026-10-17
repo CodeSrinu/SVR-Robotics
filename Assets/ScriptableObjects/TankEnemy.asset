@@ -18,3 +18,4 @@ MonoBehaviour:
   contactRange: 1.5
   damageInterval: 1
   scoreValue: 30
+  mat: {fileID: 2100000, guid: 76b88d3baa9759640b09adcd078a69b4, type: 2}

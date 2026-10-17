@@ -19,10 +19,16 @@ MonoBehaviour:
   - enemyData: {fileID: 11400000, guid: 44c45b59b0eed33438295bdd9ca53cc7, type: 2}
     unlockWave: 3
     weight: 30
-  timeBetweenWaves: 5
-  baseEnemyCount: 10
-  extraEnemiesPerWave: 6
-  baseSpawnInterval: 2
-  intervalReductionPerWave: 0.3
+  timeBetweenWaves: 4
+  baseEnemyCount: 8
+  extraEnemiesPerWave: 5
+  baseSpawnInterval: 1.8
+  intervalReductionPerWave: 0.15
   minSpawnInterval: 0.6
-  maxAlive: 50
+  maxAlive: 40
+  speedMultPerWave: 0.05
+  maxSpeedMult: 1.25
+  healthMultPerWave: 0.1
+  maxHealthMult: 2
+  damageMultPerWave: 0.08
+  maxDamageMult: 1.5

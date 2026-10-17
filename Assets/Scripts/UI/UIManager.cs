@@ -1,3 +1,4 @@
+using System.Collections;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -19,6 +20,8 @@ public class UIManager: MonoBehaviour
 
     [SerializeField] private GameObject gameOverPanel;
     [SerializeField] private Button retryBtn;
+    [SerializeField] private GameObject damageFlash;
+
 
 
     private void OnEnable()
@@ -73,6 +76,8 @@ public class UIManager: MonoBehaviour
     private void OnPlayerHelathChange(float currentHealth, float maxHealth)
     {
         UpdatePlayerHealthUI(currentHealth);
+        
+        PlayDamageFlashEffect(); 
     }
 
     private void UpdatePlayerHealthUI(float updatedHealth)
@@ -104,5 +109,18 @@ public class UIManager: MonoBehaviour
     private void ShowGameOver()
     {
         gameOverPanel.SetActive(true);
+        damageFlash.SetActive(false);
+    }
+
+    private void PlayDamageFlashEffect()
+    {
+        StartCoroutine(DamageFlashEffectRoutine());
+    }
+
+    private IEnumerator DamageFlashEffectRoutine()
+    {
+        damageFlash.SetActive(true);
+        yield return new WaitForSeconds(0.1f);
+        damageFlash.SetActive(false);
     }
 }

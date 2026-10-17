@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.ProBuilder;
 
 public class Enemy : MonoBehaviour
 {
@@ -17,6 +18,7 @@ public class Enemy : MonoBehaviour
     private bool isInitialized = false;
     private bool isReleased;
     private Action<Enemy> OnRelease;
+    private float damageMult = 1;
 
     private void Awake()
     {
@@ -34,16 +36,19 @@ public class Enemy : MonoBehaviour
         health.Dead -= OnEnemyDeath;
     }
 
-    public void Init(EnemyData enemyData, Transform target,Vector3 startPos, Action<Enemy> ReleaseAction)
+    public void Init(EnemyData enemyData, Transform target,Vector3 startPos, Action<Enemy> ReleaseAction, DifficultyScale scale)
     {
         data = enemyData;
         this.target = target;
+        target.TryGetComponent<Health>(out targetHealth);
         transform.position = startPos;
-        agent.speed = data.moveSpeed;
+        damageMult = scale.damage;
+        agent.speed = data.moveSpeed * scale.speed;
         agent.stoppingDistance = data.contactRange;
         agent.enabled = true;
-        health.Initialize(enemyData.maxHealth);
-        target.TryGetComponent<Health>(out targetHealth);
+        GetComponent<MeshRenderer>().material = enemyData.mat;
+
+        health.Initialize(enemyData.maxHealth * scale.health);
         OnRelease = ReleaseAction;
         attackTimer = data.damageInterval;
         pathCheckTimer = UnityEngine.Random.Range(0f, pathCheckCooldown);
@@ -78,7 +83,7 @@ public class Enemy : MonoBehaviour
 
     private void Attack()
     {
-        targetHealth.TakeDamage(data.contactDamage);
+        targetHealth.TakeDamage(data.contactDamage * damageMult);
     }
 
     private void OnEnemyDeath()
@@ -96,5 +101,10 @@ public class Enemy : MonoBehaviour
         agent.enabled = false;
         isReleased = true;
         OnRelease?.Invoke(this);
+    }
+
+    private void UpdateEnemyMat(Material mat)
+    {
+        GetComponent<MeshRenderer>().material = mat;
     }
 }
