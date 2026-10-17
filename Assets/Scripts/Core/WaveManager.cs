@@ -10,6 +10,7 @@ public class WaveManager : MonoBehaviour
     [SerializeField] private Transform player;
     [SerializeField] private EnemyDiedChannel enemyDiedChannel;
     [SerializeField] private Transform[] spawnPoints;
+    [SerializeField] private Transform enemiesPoolContainer;
     public event Action<int> EnemyKilled;
     public event Action<int> EnemiesChanged;
 
@@ -21,13 +22,14 @@ public class WaveManager : MonoBehaviour
 
     public event Action<int> WaveChanged;
     private Coroutine wavesCoroutine;
+    private Pool<Enemy> enemiesPool;
 
     [SerializeField] private float spawnRingRadius = 5f;
     [SerializeField] private float sampleRadius = 6f;
     [SerializeField] private float minSpawnDistance = 15f;
     [SerializeField] private int maxSpawnAttempts = 10;
     [SerializeField] private float minEdgeDistance = 0.8f;
-
+    
 
     private void OnEnable()
     {
@@ -40,6 +42,7 @@ public class WaveManager : MonoBehaviour
 
     private void Start()
     {
+        enemiesPool = new Pool<Enemy>(EnemyPrefab, enemiesPoolContainer, 15);
         wavesCoroutine = StartCoroutine(RunWaves());
     }
 
@@ -70,7 +73,7 @@ public class WaveManager : MonoBehaviour
             {
                 if (enemiesAlive >= waveData.maxAlive)
                 {
-                    yield return 0.25;
+                    yield return new WaitForSeconds(0.25f);
                     continue;
                 }
 
@@ -90,7 +93,7 @@ public class WaveManager : MonoBehaviour
                         Debug.LogWarning($"Wave {currentWave}: gave up after {failedInARow} failed spawns ({spawned}/{count} spawned)");
                         break;
                     }
-                    yield return 0.2f;
+                    yield return new WaitForSeconds(0.2f);
                 }
             }
 
@@ -122,8 +125,8 @@ public class WaveManager : MonoBehaviour
             if (NavMesh.FindClosestEdge(hit.position, out NavMeshHit edge, NavMesh.AllAreas)
                 && edge.distance < minEdgeDistance) continue;
 
-            Enemy enemy = Instantiate(EnemyPrefab, hit.position, Quaternion.identity);
-            enemy.Init(entry.enemyData, player);
+            Enemy enemy = enemiesPool.Get();
+            enemy.Init(entry.enemyData, player, hit.position, enemiesPool.Release);
             enemiesAlive++;
             return true;
         }

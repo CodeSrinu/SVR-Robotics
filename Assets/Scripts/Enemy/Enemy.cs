@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -14,7 +15,8 @@ public class Enemy : MonoBehaviour
     private float pathCheckTimer = 0;
     private float attackTimer = 0;
     private bool isInitialized = false;
-
+    private bool isReleased;
+    private Action<Enemy> OnRelease;
 
     private void Awake()
     {
@@ -32,17 +34,21 @@ public class Enemy : MonoBehaviour
         health.Dead -= OnEnemyDeath;
     }
 
-    public void Init(EnemyData enemyData, Transform target)
+    public void Init(EnemyData enemyData, Transform target,Vector3 startPos, Action<Enemy> ReleaseAction)
     {
         data = enemyData;
         this.target = target;
+        transform.position = startPos;
         agent.speed = data.moveSpeed;
         agent.stoppingDistance = data.contactRange;
+        agent.enabled = true;
         health.Initialize(enemyData.maxHealth);
         target.TryGetComponent<Health>(out targetHealth);
-        isInitialized = true;
+        OnRelease = ReleaseAction;
         attackTimer = data.damageInterval;
-        pathCheckTimer = Random.Range(0f, pathCheckCooldown);
+        pathCheckTimer = UnityEngine.Random.Range(0f, pathCheckCooldown);
+        isInitialized = true;
+        isReleased = false;
     }
 
     private void Update()
@@ -77,7 +83,18 @@ public class Enemy : MonoBehaviour
 
     private void OnEnemyDeath()
     {
+        if (isReleased) return;
+
+
         enemyDiedChannel.EnemyDied(data);
-        Destroy(gameObject);
+        ReleaseEnemy();
+    }
+
+    private void ReleaseEnemy()
+    {
+        isInitialized = false;
+        agent.enabled = false;
+        isReleased = true;
+        OnRelease?.Invoke(this);
     }
 }
